@@ -15,6 +15,12 @@ local defaults = {
     limits: { cpu: '200m', memory: '200Mi' },
     requests: { cpu: '100m', memory: '100Mi' },
   },
+  kubeRbacProxy:: {
+    resources+: {
+      requests: { cpu: '10m', memory: '20Mi' },
+      limits: { cpu: '20m', memory: '40Mi' },
+    },
+  },
   commonLabels:: {
     'app.kubernetes.io/name': defaults.name,
     'app.kubernetes.io/version': defaults.version,
@@ -32,6 +38,7 @@ local defaults = {
       prometheus: defaults.name,
     },
     _config: {
+      groupLabels: 'cluster,controller,namespace',
       prometheusOperatorSelector: 'job="prometheus-operator",namespace="' + defaults.namespace + '"',
       runbookURLPattern: 'https://runbooks.prometheus-operator.dev/runbooks/prometheus-operator/%s',
     },
@@ -69,6 +76,32 @@ function(params)
         local r = if std.objectHasAll(po.mixin, 'prometheusRules') then po.mixin.prometheusRules.groups else [],
         local a = if std.objectHasAll(po.mixin, 'prometheusAlerts') then po.mixin.prometheusAlerts.groups else [],
         groups: a + r,
+      },
+    },
+
+    networkPolicy: {
+      apiVersion: 'networking.k8s.io/v1',
+      kind: 'NetworkPolicy',
+      metadata: po.service.metadata,
+      spec: {
+        podSelector: {
+          matchLabels: po._config.selectorLabels,
+        },
+        policyTypes: ['Egress', 'Ingress'],
+        egress: [{}],
+        ingress: [{
+          from: [{
+            podSelector: {
+              matchLabels: {
+                'app.kubernetes.io/name': 'prometheus',
+              },
+            },
+          }],
+          ports: std.map(function(o) {
+            port: o.port,
+            protocol: 'TCP',
+          }, po.service.spec.ports),
+        }],
       },
     },
 
@@ -115,7 +148,7 @@ function(params)
       ],
     },
 
-    local kubeRbacProxy = krp({
+    local kubeRbacProxy = krp(po._config.kubeRbacProxy {
       name: 'kube-rbac-proxy',
       upstream: 'http://127.0.0.1:8080/',
       secureListenAddress: ':8443',
@@ -129,6 +162,10 @@ function(params)
       spec+: {
         template+: {
           spec+: {
+            automountServiceAccountToken: true,
+            securityContext+: {
+              runAsGroup: 65534,
+            },
             containers+: [kubeRbacProxy],
           },
         },

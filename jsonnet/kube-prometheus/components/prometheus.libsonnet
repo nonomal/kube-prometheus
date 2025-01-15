@@ -34,7 +34,17 @@ local defaults = {
     _config: {
       prometheusSelector: 'job="prometheus-' + defaults.name + '",namespace="' + defaults.namespace + '"',
       prometheusName: '{{$labels.namespace}}/{{$labels.pod}}',
+      // TODO: remove `thanosSelector` after 0.10.0 release.
       thanosSelector: 'job="thanos-sidecar"',
+      thanos: {
+        targetGroups: {
+          namespace: defaults.namespace,
+        },
+        sidecar: {
+          selector: defaults.mixin._config.thanosSelector,
+          thanosPrometheusCommonDimensions: 'namespace, pod',
+        },
+      },
       runbookURLPattern: 'https://runbooks.prometheus-operator.dev/runbooks/prometheus/%s',
     },
   },
@@ -65,12 +75,9 @@ function(params) {
     (import 'github.com/thanos-io/thanos/mixin/alerts/sidecar.libsonnet') +
     (import 'github.com/kubernetes-monitoring/kubernetes-mixin/lib/add-runbook-links.libsonnet') + {
       _config+:: p._config.mixin._config,
-      targetGroups: {},
-      sidecar: {
-        selector: p._config.mixin._config.thanosSelector,
-        thanosPrometheusCommonDimensions: 'namespace, pod',
-        dimensions: std.join(', ', ['job', 'instance']),
-      },
+      targetGroups+: p._config.mixin._config.thanos.targetGroups,
+      // TODO: remove `_config.thanosSelector` after 0.10.0 release.
+      sidecar+: { selector: p._config.mixin._config.thanosSelector } + p._config.mixin._config.thanos.sidecar,
     },
 
   prometheusRule: {
@@ -87,10 +94,74 @@ function(params) {
     },
   },
 
+  networkPolicy: {
+    apiVersion: 'networking.k8s.io/v1',
+    kind: 'NetworkPolicy',
+    metadata: p.service.metadata,
+    spec: {
+      podSelector: {
+        matchLabels: p._config.selectorLabels,
+      },
+      policyTypes: ['Egress', 'Ingress'],
+      egress: [{}],
+      ingress: [{
+        from: [{
+          podSelector: {
+            matchLabels: {
+              'app.kubernetes.io/name': 'prometheus',
+            },
+          },
+        }],
+        ports: std.map(function(o) {
+          port: o.port,
+          protocol: 'TCP',
+        }, p.service.spec.ports),
+      }, {
+        from: [{
+          podSelector: {
+            matchLabels: {
+              'app.kubernetes.io/name': 'prometheus-adapter',
+            },
+          },
+        }],
+        ports: [{
+          port: 9090,
+          protocol: 'TCP',
+        }],
+      }, {
+        from: [{
+          podSelector: {
+            matchLabels: {
+              'app.kubernetes.io/name': 'grafana',
+            },
+          },
+        }],
+        ports: [{
+          port: 9090,
+          protocol: 'TCP',
+        }],
+      }] + (if p._config.thanos != null then
+              [{
+                from: [{
+                  podSelector: {
+                    matchLabels: {
+                      'app.kubernetes.io/name': 'thanos-query',
+                    },
+                  },
+                }],
+                ports: [{
+                  port: 10901,
+                  protocol: 'TCP',
+                }],
+              }] else []),
+    },
+  },
+
   serviceAccount: {
     apiVersion: 'v1',
     kind: 'ServiceAccount',
     metadata: p._metadata,
+    automountServiceAccountToken: true,
   },
 
   service: {
@@ -104,7 +175,10 @@ function(params) {
              ] +
              (
                if p._config.thanos != null then
-                 [{ name: 'grpc', port: 10901, targetPort: 10901 }]
+                 [
+                   { name: 'grpc', port: 10901, targetPort: 10901 },
+                   { name: 'http', port: 10902, targetPort: 10902 },
+                 ]
                else []
              ),
       selector: p._config.selectorLabels,
@@ -139,7 +213,9 @@ function(params) {
   clusterRole: {
     apiVersion: 'rbac.authorization.k8s.io/v1',
     kind: 'ClusterRole',
-    metadata: p._metadata,
+    metadata: p._metadata {
+      namespace:: null,
+    },
     rules: [
       {
         apiGroups: [''],
@@ -147,7 +223,7 @@ function(params) {
         verbs: ['get'],
       },
       {
-        nonResourceURLs: ['/metrics'],
+        nonResourceURLs: ['/metrics', '/metrics/slis'],
         verbs: ['get'],
       },
     ],
@@ -175,11 +251,11 @@ function(params) {
     roleRef: {
       apiGroup: 'rbac.authorization.k8s.io',
       kind: 'Role',
-      name: p._metadata.name + '-config',
+      name: p.roleConfig.metadata.name,
     },
     subjects: [{
       kind: 'ServiceAccount',
-      name: p._metadata.name,
+      name: p.serviceAccount.metadata.name,
       namespace: p._config.namespace,
     }],
   },
@@ -187,15 +263,17 @@ function(params) {
   clusterRoleBinding: {
     apiVersion: 'rbac.authorization.k8s.io/v1',
     kind: 'ClusterRoleBinding',
-    metadata: p._metadata,
+    metadata: p._metadata {
+      namespace:: null,
+    },
     roleRef: {
       apiGroup: 'rbac.authorization.k8s.io',
       kind: 'ClusterRole',
-      name: p._metadata.name,
+      name: p.clusterRole.metadata.name,
     },
     subjects: [{
       kind: 'ServiceAccount',
-      name: p._metadata.name,
+      name: p.serviceAccount.metadata.name,
       namespace: p._config.namespace,
     }],
   },
@@ -265,6 +343,8 @@ function(params) {
       probeNamespaceSelector: {},
       ruleNamespaceSelector: {},
       ruleSelector: p._config.ruleSelector,
+      scrapeConfigSelector: {},
+      scrapeConfigNamespaceSelector: {},
       serviceMonitorSelector: {},
       serviceMonitorNamespaceSelector: {},
       nodeSelector: { 'kubernetes.io/os': 'linux' },
