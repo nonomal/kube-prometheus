@@ -1,4 +1,5 @@
 local platforms = {
+  aks: import './aks.libsonnet',
   aws: import './aws.libsonnet',
   bootkube: import './bootkube.libsonnet',
   gke: import './gke.libsonnet',
@@ -16,16 +17,18 @@ local platformPatch(p) = if p != null && std.objectHas(platforms, p) then platfo
 {
   // initialize the object to prevent "Indexed object has no field" lint errors
   local p = {
+    values+:: $.values,
     alertmanager: {},
     blackboxExporter: {},
     grafana: {},
+    kubePrometheus: {},
+    kubernetesControlPlane: {},
     kubeStateMetrics: {},
     nodeExporter: {},
     prometheus: {},
     prometheusAdapter: {},
     prometheusOperator: {},
-    kubernetesControlPlane: {},
-    kubePrometheus: {},
+    pyrra: {},
   } + platformPatch($.values.common.platform),
 
   alertmanager+: p.alertmanager,
@@ -38,4 +41,5 @@ local platformPatch(p) = if p != null && std.objectHas(platforms, p) then platfo
   prometheusOperator+: p.prometheusOperator,
   kubernetesControlPlane+: p.kubernetesControlPlane,
   kubePrometheus+: p.kubePrometheus,
+  pyrra+: p.pyrra,
 }

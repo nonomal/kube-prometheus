@@ -6,10 +6,16 @@ local defaults = {
   // If there is no CRD for the component, everything is hidden in defaults.
   namespace:: error 'must provide namespace',
   version:: error 'must provide version',
-  image:: error 'must provide version',
+  image:: error 'must provide image',
   resources:: {
     requests: { cpu: '10m', memory: '20Mi' },
     limits: { cpu: '20m', memory: '40Mi' },
+  },
+  kubeRbacProxy:: {
+    resources+: {
+      requests: { cpu: '10m', memory: '20Mi' },
+      limits: { cpu: '20m', memory: '40Mi' },
+    },
   },
   commonLabels:: {
     'app.kubernetes.io/name': 'blackbox-exporter',
@@ -115,6 +121,7 @@ function(params) {
     apiVersion: 'v1',
     kind: 'ServiceAccount',
     metadata: bb._metadata,
+    automountServiceAccountToken: false,
   },
 
   clusterRole: {
@@ -140,7 +147,10 @@ function(params) {
   clusterRoleBinding: {
     apiVersion: 'rbac.authorization.k8s.io/v1',
     kind: 'ClusterRoleBinding',
-    metadata: bb._metadata,
+    metadata: {
+      name: 'blackbox-exporter',
+      labels: bb._config.commonLabels,
+    },
     roleRef: {
       apiGroup: 'rbac.authorization.k8s.io',
       kind: 'ClusterRole',
@@ -169,9 +179,14 @@ function(params) {
       securityContext: if bb._config.privileged then {
         runAsNonRoot: false,
         capabilities: { drop: ['ALL'], add: ['NET_RAW'] },
+        readOnlyRootFilesystem: true,
       } else {
         runAsNonRoot: true,
         runAsUser: 65534,
+        runAsGroup: 65534,
+        allowPrivilegeEscalation: false,
+        readOnlyRootFilesystem: true,
+        capabilities: { drop: ['ALL'] },
       },
       volumeMounts: [{
         mountPath: '/etc/blackbox_exporter/',
@@ -188,7 +203,14 @@ function(params) {
         '--volume-dir=/etc/blackbox_exporter/',
       ],
       resources: bb._config.resources,
-      securityContext: { runAsNonRoot: true, runAsUser: 65534 },
+      securityContext: {
+        runAsNonRoot: true,
+        runAsUser: 65534,
+        runAsGroup: 65534,
+        allowPrivilegeEscalation: false,
+        readOnlyRootFilesystem: true,
+        capabilities: { drop: ['ALL'] },
+      },
       terminationMessagePath: '/dev/termination-log',
       terminationMessagePolicy: 'FallbackToLogsOnError',
       volumeMounts: [{
@@ -198,7 +220,7 @@ function(params) {
       }],
     };
 
-    local kubeRbacProxy = krp({
+    local kubeRbacProxy = krp(bb._config.kubeRbacProxy {
       name: 'kube-rbac-proxy',
       upstream: 'http://127.0.0.1:' + bb._config.internalPort + '/',
       resources: bb._config.resources,
@@ -228,6 +250,7 @@ function(params) {
           spec: {
             containers: [blackboxExporter, reloader, kubeRbacProxy],
             nodeSelector: { 'kubernetes.io/os': 'linux' },
+            automountServiceAccountToken: true,
             serviceAccountName: 'blackbox-exporter',
             volumes: [{
               name: 'config',
@@ -237,6 +260,32 @@ function(params) {
         },
       },
     },
+
+  networkPolicy: {
+    apiVersion: 'networking.k8s.io/v1',
+    kind: 'NetworkPolicy',
+    metadata: bb.service.metadata,
+    spec: {
+      podSelector: {
+        matchLabels: bb._config.selectorLabels,
+      },
+      policyTypes: ['Egress', 'Ingress'],
+      egress: [{}],
+      ingress: [{
+        from: [{
+          podSelector: {
+            matchLabels: {
+              'app.kubernetes.io/name': 'prometheus',
+            },
+          },
+        }],
+        ports: std.map(function(o) {
+          port: o.port,
+          protocol: 'TCP',
+        }, bb.service.spec.ports),
+      }],
+    },
+  },
 
   service: {
     apiVersion: 'v1',
