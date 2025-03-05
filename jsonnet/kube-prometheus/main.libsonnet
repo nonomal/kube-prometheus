@@ -40,14 +40,14 @@ local utils = import './lib/utils.libsonnet';
         alertmanager: 'quay.io/prometheus/alertmanager:v' + $.values.common.versions.alertmanager,
         blackboxExporter: 'quay.io/prometheus/blackbox-exporter:v' + $.values.common.versions.blackboxExporter,
         grafana: 'grafana/grafana:' + $.values.common.versions.grafana,
-        kubeStateMetrics: 'k8s.gcr.io/kube-state-metrics/kube-state-metrics:v' + $.values.common.versions.kubeStateMetrics,
+        kubeStateMetrics: 'registry.k8s.io/kube-state-metrics/kube-state-metrics:v' + $.values.common.versions.kubeStateMetrics,
         nodeExporter: 'quay.io/prometheus/node-exporter:v' + $.values.common.versions.nodeExporter,
         prometheus: 'quay.io/prometheus/prometheus:v' + $.values.common.versions.prometheus,
-        prometheusAdapter: 'k8s.gcr.io/prometheus-adapter/prometheus-adapter:v' + $.values.common.versions.prometheusAdapter,
+        prometheusAdapter: 'registry.k8s.io/prometheus-adapter/prometheus-adapter:v' + $.values.common.versions.prometheusAdapter,
         prometheusOperator: 'quay.io/prometheus-operator/prometheus-operator:v' + $.values.common.versions.prometheusOperator,
         prometheusOperatorReloader: 'quay.io/prometheus-operator/prometheus-config-reloader:v' + $.values.common.versions.prometheusOperator,
         kubeRbacProxy: 'quay.io/brancz/kube-rbac-proxy:v' + $.values.common.versions.kubeRbacProxy,
-        configmapReload: 'jimmidyson/configmap-reload:v' + $.values.common.versions.configmapReload,
+        configmapReload: 'ghcr.io/jimmidyson/configmap-reload:v' + $.values.common.versions.configmapReload,
       },
     },
     alertmanager: {
@@ -70,7 +70,12 @@ local utils = import './lib/utils.libsonnet';
       image: $.values.common.images.grafana,
       prometheusName: $.values.prometheus.name,
       // TODO(paulfantom) This should be done by iterating over all objects and looking for object.mixin.grafanaDashboards
-      dashboards: $.nodeExporter.mixin.grafanaDashboards + $.prometheus.mixin.grafanaDashboards + $.kubernetesControlPlane.mixin.grafanaDashboards + $.alertmanager.mixin.grafanaDashboards,
+      dashboards: $.nodeExporter.mixin.grafanaDashboards +
+                  $.prometheus.mixin.grafanaDashboards +
+                  $.kubernetesControlPlane.mixin.grafanaDashboards +
+                  $.alertmanager.mixin.grafanaDashboards +
+                  $.grafana.mixin.grafanaDashboards,
+      mixin+: { ruleLabels: $.values.common.ruleLabels },
     },
     kubeStateMetrics: {
       namespace: $.values.common.namespace,
@@ -145,6 +150,10 @@ local utils = import './lib/utils.libsonnet';
       kind: 'Namespace',
       metadata: {
         name: $.values.common.namespace,
+        labels: {
+          'pod-security.kubernetes.io/warn': 'privileged',
+          'pod-security.kubernetes.io/warn-version': 'latest',
+        },
       },
     },
   },

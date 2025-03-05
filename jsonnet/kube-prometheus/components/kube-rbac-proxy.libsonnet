@@ -50,7 +50,6 @@ function(params) {
   name: krp._config.name,
   image: krp._config.image,
   args: [
-    '--logtostderr',
     '--secure-listen-address=' + krp._config.secureListenAddress,
     '--tls-cipher-suites=' + std.join(',', krp._config.tlsCipherSuites),
     '--upstream=' + krp._config.upstream,
@@ -61,5 +60,9 @@ function(params) {
     runAsUser: 65532,
     runAsGroup: 65532,
     runAsNonRoot: true,
+    allowPrivilegeEscalation: false,
+    readOnlyRootFilesystem: true,
+    capabilities: { drop: ['ALL'] },
+    seccompProfile: { type: 'RuntimeDefault' },
   },
 }

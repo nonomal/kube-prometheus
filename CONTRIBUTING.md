@@ -8,13 +8,6 @@ and other resources to make it easier to get your contribution accepted.
 To maintain a safe and welcoming community, all participants must adhere to the
 project's [Code of Conduct](code-of-conduct.md).
 
-## Certificate of Origin
-
-By contributing to this project you agree to the Developer Certificate of
-Origin (DCO). This document was created by the Linux Kernel community and is a
-simple statement that you, as a contributor, have the legal right to make the
-contribution. See the [DCO](DCO) file for details.
-
 ## Community
 
 The project is developed in the open. Here are some of the channels we use to communicate and contribute:
@@ -27,7 +20,7 @@ Channel used for project developers discussions
 
 **Discussion forum**: [GitHub discussions](https://github.com/prometheus-operator/kube-prometheus/discussions)
 
-**Twitter**: [@PromOperator](https://twitter.com/promoperator)
+**Twitter**: [@PromOperator](https://twitter.com/PromOperator)
 
 **GitHub**: To file bugs and feature requests. For questions and discussions use the GitHub discussions. Generally,
 the other community channels listed here are best suited to get support or discuss overarching topics.
